@@ -277,12 +277,27 @@ function refreshCourseList(){
 
 /* ---------- roster parsing ---------- */
 function isDigits(v){ return /^[A-Za-z]?\d{3,}$/.test(String(v).trim()); }
+/* 學校名單表頭的「科目 Course」欄位，例如 46328投資學 */
+function findCourse(rows){
+  for (var i = 0; i < Math.min(rows.length, 15); i++){
+    var r = rows[i] || [];
+    for (var j = 0; j < r.length; j++){
+      if (/^\s*(科目|課程名稱|course)/i.test(String(r[j] == null ? '' : r[j]))){
+        for (var k = j + 1; k < r.length; k++){
+          var v = String(r[k] == null ? '' : r[k]).replace(/\s+/g, ' ').trim();
+          if (v) return v;
+        }
+      }
+    }
+  }
+  return '';
+}
 function parseRows(rows){
   rows = rows.filter(function(r){ return r && r.some(function(c){ return String(c == null ? '' : c).trim() !== ''; }); });
   if (!rows.length) return [];
   var nameRe = /姓名|名字|^name$|student\s*name/i;
   var hi = -1;
-  for (var i = 0; i < Math.min(rows.length, 6); i++){
+  for (var i = 0; i < Math.min(rows.length, 15); i++){
     if (rows[i].some(function(c){ return nameRe.test(String(c).trim()); })) { hi = i; break; }
   }
   var idCol = -1, nameCol = -1, seatCol = -1, start = 0;
@@ -329,7 +344,9 @@ $('#file').addEventListener('change', function(e){
       var rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', raw:false});
       var list = parseRows(rows);
       if (!list.length){ toast('讀不到學生姓名，請確認檔案有「姓名」欄'); return; }
-      if (!$('#course').value.trim()) $('#course').value = f.name.replace(/\.(xlsx|xls|csv)$/i, '');
+      var fc = findCourse(rows);
+      if (fc) $('#course').value = fc;
+      else if (!$('#course').value.trim()) $('#course').value = f.name.replace(/\.(xlsx|xls|csv)$/i, '');
       rosters[courseName()] = list; save('rc_rosters', rosters);
       saveSettings(); refreshCourseList();
       setRoster(list, true);

@@ -1,0 +1,735 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>語音點名系統</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#f4f6f8; --card:#ffffff; --ink:#1d2430; --muted:#5f6b7a; --line:#dde3ea;
+  --pri:#0d7377; --pri-ink:#ffffff; --absent:#c0392b; --absent-bg:#fdecea;
+  --late:#b7791f; --late-bg:#fdf3e1; --leave:#5a67d8; --leave-bg:#ebedfb;
+  --present:#2f855a; --present-bg:#e6f4ec; --shadow:0 1px 3px rgba(0,0,0,.08);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#11161c; --card:#1a2129; --ink:#e6ebf0; --muted:#9aa6b2; --line:#2c3640;
+    --pri:#2bb3a3; --pri-ink:#0b1a19; --absent:#ff6b5b; --absent-bg:#3a1c1a;
+    --late:#f0b44c; --late-bg:#3a2e17; --leave:#8f9cf5; --leave-bg:#22264a;
+    --present:#5fcf8f; --present-bg:#173323; --shadow:none;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#11161c; --card:#1a2129; --ink:#e6ebf0; --muted:#9aa6b2; --line:#2c3640;
+  --pri:#2bb3a3; --pri-ink:#0b1a19; --absent:#ff6b5b; --absent-bg:#3a1c1a;
+  --late:#f0b44c; --late-bg:#3a2e17; --leave:#8f9cf5; --leave-bg:#22264a;
+  --present:#5fcf8f; --present-bg:#173323; --shadow:none;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;line-height:1.5}
+header{background:var(--pri);color:var(--pri-ink);padding:14px 16px}
+header .wrap{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+header h1{margin:0;font-size:20px;letter-spacing:.05em}
+header small{opacity:.85}
+.wrap{max-width:1000px;margin:0 auto}
+main{padding:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px;box-shadow:var(--shadow)}
+.card h2{margin:0 0 12px;font-size:16px;color:var(--muted);font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
+input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-height:40px}
+input[type=range]{padding:0}
+button{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 14px;min-height:40px}
+button:hover{border-color:var(--pri)}
+button.pri{background:var(--pri);color:var(--pri-ink);border-color:var(--pri);font-weight:600}
+button:disabled{opacity:.45;cursor:not-allowed}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.note{font-size:13px;color:var(--muted);margin:8px 0 0}
+/* stage */
+#stage{text-align:center;transition:background .2s}
+#stage.flash-absent{background:var(--absent-bg)}
+#stage.flash-late{background:var(--late-bg)}
+#counter{font-size:14px;color:var(--muted)}
+#curName{font-size:clamp(44px,11vw,108px);font-weight:700;margin:6px 0 2px;letter-spacing:.08em;word-break:break-all}
+#curSub{font-size:18px;color:var(--muted);min-height:27px}
+#curStatus{display:inline-block;margin-top:6px;font-weight:700;padding:2px 12px;border-radius:999px;min-height:28px}
+.barwrap{height:10px;background:var(--line);border-radius:999px;overflow:hidden;margin:14px 0 4px}
+#bar{height:100%;background:var(--pri);transform-origin:left;transform:scaleX(0)}
+#secLeft{font-size:13px;color:var(--muted);min-height:20px}
+.bigbtns{display:grid;grid-template-columns:2fr 1fr 1fr;gap:10px;margin:14px 0 10px}
+.bigbtns button{min-height:64px;font-size:20px;font-weight:700}
+#btnAbsent{background:var(--absent);border-color:var(--absent);color:#fff}
+#btnLate{background:var(--late-bg);border-color:var(--late);color:var(--late)}
+#btnPrevAbsent{font-size:15px}
+.ctrl{justify-content:center}
+.ctrl button{min-width:92px}
+.keys{font-size:12px;color:var(--muted);margin-top:10px}
+kbd{border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px;font-family:inherit;background:var(--bg)}
+/* stats + table */
+.stats{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.chip{padding:4px 12px;border-radius:999px;font-size:14px;font-weight:600}
+.s-present{background:var(--present-bg);color:var(--present)}
+.s-absent{background:var(--absent-bg);color:var(--absent)}
+.s-late{background:var(--late-bg);color:var(--late)}
+.s-leave{background:var(--leave-bg);color:var(--leave)}
+.s-none{background:var(--bg);color:var(--muted)}
+.tablewrap{max-height:420px;overflow:auto;border:1px solid var(--line);border-radius:8px}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left}
+th{position:sticky;top:0;background:var(--card);color:var(--muted);font-weight:600;font-size:13px;z-index:1}
+tr.current td{background:var(--present-bg);font-weight:700}
+td button{min-height:32px;padding:2px 12px;border:none;font-weight:600;min-width:64px}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:8px;font-size:15px;opacity:0;pointer-events:none;transition:opacity .2s;max-width:calc(100% - 32px)}
+#toast.show{opacity:1}
+.sync{display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:4px 12px;border-radius:999px;background:var(--bg);color:var(--muted)}
+.sync::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor}
+.sync.ok{background:var(--present-bg);color:var(--present)}
+.sync.busy{background:var(--late-bg);color:var(--late)}
+.sync.err{background:var(--absent-bg);color:var(--absent)}
+a.link{color:var(--pri);font-weight:600}
+details summary{cursor:pointer;color:var(--muted);font-size:14px}
+@media (max-width:560px){
+  .bigbtns{grid-template-columns:1fr 1fr}
+  #btnAbsent{grid-column:1 / -1}
+  .ctrl button{min-width:0;flex:1}
+}
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <h1>語音點名系統</h1>
+  <small>名單存在你的瀏覽器；點名結果可自動存入你的 Google 試算表</small>
+</div></header>
+
+<main class="wrap">
+  <section class="card">
+    <h2>一、課程與名單</h2>
+    <div class="grid">
+      <label>課程名稱
+        <input id="course" list="courseList" placeholder="例：財務管理（金科一甲）">
+        <datalist id="courseList"></datalist>
+      </label>
+      <label>點名日期
+        <input id="date" type="date">
+      </label>
+      <label>上傳名單（Excel／CSV）
+        <input id="file" type="file" accept=".xlsx,.xls,.csv">
+      </label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="btnTemplate">下載名單範本</button>
+      <button id="btnClearRoster">清除此課程名單</button>
+      <span id="rosterInfo" class="note" style="margin:0">尚未載入名單</span>
+    </div>
+    <p class="note">名單需含「姓名」欄；「學號」「座號」欄可有可無。每個課程各存一份名單，下次輸入同一課程名稱會自動載入。</p>
+  </section>
+
+  <section class="card">
+    <h2>二、點名設定</h2>
+    <div class="grid">
+      <label>每位間隔
+        <select id="secs">
+          <option value="2">2 秒</option>
+          <option value="3" selected>3 秒</option>
+          <option value="4">4 秒</option>
+          <option value="5">5 秒</option>
+          <option value="6">6 秒</option>
+        </select>
+      </label>
+      <label>唸法
+        <select id="mode">
+          <option value="name">只唸姓名</option>
+          <option value="seat">座號＋姓名</option>
+          <option value="id3">學號末三碼＋姓名</option>
+        </select>
+      </label>
+      <label>語速 <span id="rateVal">1.0</span>
+        <input id="rate" type="range" min="0.6" max="1.6" step="0.1" value="1">
+      </label>
+      <label>語音
+        <select id="voice"><option value="">（系統預設）</option></select>
+      </label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="btnTest">試聽語音</button>
+      <span id="speechWarn" class="note" style="margin:0"></span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>三、自動存到 Google 試算表</h2>
+    <div class="row" style="margin-bottom:10px">
+      <span id="cloudState" class="sync">尚未連線</span>
+      <a id="sheetLink" class="link" href="#" target="_blank" rel="noopener" style="display:none">開啟我的點名試算表 ↗</a>
+    </div>
+    <details id="cloudBox">
+      <summary>連線設定（只需設定一次）</summary>
+      <div class="grid" style="margin-top:10px">
+        <label>Apps Script 網址
+          <input id="gasUrl" placeholder="https://script.google.com/macros/s/.../exec">
+        </label>
+        <label>密碼（與 Apps Script 內 TOKEN 相同）
+          <input id="gasToken" type="password" autocomplete="off">
+        </label>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button id="btnCloudSave" class="pri">儲存並測試連線</button>
+        <button id="btnCloudOff">中斷連線</button>
+      </div>
+      <p class="note">網址與密碼只存在這台電腦的瀏覽器，不會放進 GitHub。設定方式見 README。</p>
+    </details>
+  </section>
+
+  <section class="card" id="stage">
+    <div id="counter">尚未開始</div>
+    <div id="curName">—</div>
+    <div id="curSub"></div>
+    <div id="curStatus"></div>
+    <div class="barwrap"><div id="bar"></div></div>
+    <div id="secLeft"></div>
+    <div class="bigbtns">
+      <button id="btnAbsent">缺席</button>
+      <button id="btnLate">遲到</button>
+      <button id="btnPrevAbsent">上一位缺席</button>
+    </div>
+    <div class="row ctrl">
+      <button id="btnPrev">◀ 上一位</button>
+      <button id="btnStart" class="pri">開始點名</button>
+      <button id="btnNext">下一位 ▶</button>
+      <button id="btnRepeat">重唸</button>
+      <button id="btnStop">結束</button>
+    </div>
+    <div class="keys">
+      快捷鍵：<kbd>空白鍵</kbd> 缺席　<kbd>L</kbd> 遲到　<kbd>B</kbd> 上一位缺席　<kbd>Enter</kbd> 開始／暫停　<kbd>←</kbd><kbd>→</kbd> 上下一位　<kbd>R</kbd> 重唸
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>四、點名結果</h2>
+    <div class="row" style="justify-content:space-between;margin-bottom:8px">
+      <div class="stats" id="stats" style="margin:0"></div>
+      <span id="syncState" class="sync" style="display:none"></span>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>座號</th><th>學號</th><th>姓名</th><th>狀態（點一下可切換）</th></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button id="btnSyncNow" class="pri">立即存到 Google 試算表</button>
+      <button id="btnCopy">複製缺席名單</button>
+      <button id="btnExport">匯出本次 Excel</button>
+      <button id="btnHistory">匯出本課程歷次紀錄</button>
+    </div>
+    <p class="note">已連線 Google 試算表時，點名結束或修改狀態後會自動存入，不需匯出。若當下網路不通，結果會先留在瀏覽器，下次開啟網頁時自動補存。</p>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+(function(){
+'use strict';
+var $ = function(s){ return document.querySelector(s); };
+var STATUS = {present:'出席', absent:'缺席', late:'遲到', leave:'請假'};
+var ORDER = ['present','absent','late','leave'];
+
+var roster = [], marks = [], cur = -1, running = false, finished = false;
+var timer = null, raf = null, stepStart = 0, stepDur = 3000, wakeLock = null;
+
+/* ---------- storage ---------- */
+function load(k, d){ try{ var v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } }
+function save(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+var rosters = load('rc_rosters', {});
+var records = load('rc_records', {});
+var settings = load('rc_settings', {});
+
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function toast(msg){ var t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(function(){ t.classList.remove('show'); }, 2200); }
+function courseName(){ return $('#course').value.trim() || '未命名課程'; }
+function recKey(){ return $('#date').value + '|' + courseName(); }
+
+/* ---------- init fields ---------- */
+$('#date').value = new Date().toLocaleDateString('sv-SE');
+if (settings.course) $('#course').value = settings.course;
+if (settings.secs) $('#secs').value = settings.secs;
+if (settings.mode) $('#mode').value = settings.mode;
+if (settings.rate) { $('#rate').value = settings.rate; }
+$('#rateVal').textContent = Number($('#rate').value).toFixed(1);
+
+function saveSettings(){
+  settings = {course: $('#course').value.trim(), secs: $('#secs').value, mode: $('#mode').value, rate: $('#rate').value, voice: $('#voice').value};
+  save('rc_settings', settings);
+}
+function refreshCourseList(){
+  var names = {};
+  Object.keys(rosters).forEach(function(k){ names[k] = 1; });
+  $('#courseList').innerHTML = Object.keys(names).map(function(n){ return '<option value="' + esc(n) + '">'; }).join('');
+}
+
+/* ---------- roster parsing ---------- */
+function isDigits(v){ return /^[A-Za-z]?\d{3,}$/.test(String(v).trim()); }
+function parseRows(rows){
+  rows = rows.filter(function(r){ return r && r.some(function(c){ return String(c == null ? '' : c).trim() !== ''; }); });
+  if (!rows.length) return [];
+  var nameRe = /姓名|名字|^name$|student\s*name/i;
+  var hi = -1;
+  for (var i = 0; i < Math.min(rows.length, 6); i++){
+    if (rows[i].some(function(c){ return nameRe.test(String(c).trim()); })) { hi = i; break; }
+  }
+  var idCol = -1, nameCol = -1, seatCol = -1, start = 0;
+  if (hi >= 0){
+    var h = rows[hi].map(function(c){ return String(c == null ? '' : c).trim(); });
+    nameCol = h.findIndex(function(c){ return nameRe.test(c); });
+    idCol = h.findIndex(function(c){ return /學號|student\s*id|^id$/i.test(c); });
+    seatCol = h.findIndex(function(c){ return /座號|序號|編號|^no\.?$/i.test(c); });
+    start = hi + 1;
+  } else {
+    var w = Math.max.apply(null, rows.map(function(r){ return r.length; }));
+    var sample = rows.slice(0, 20);
+    for (var c = 0; c < w; c++){
+      var vals = sample.map(function(r){ return String(r[c] == null ? '' : r[c]).trim(); }).filter(Boolean);
+      if (!vals.length) continue;
+      var digitShare = vals.filter(isDigits).length / vals.length;
+      var smallNum = vals.filter(function(v){ return /^\d{1,2}$/.test(v); }).length / vals.length;
+      if (nameCol < 0 && digitShare < 0.3 && smallNum < 0.3) nameCol = c;
+      else if (idCol < 0 && digitShare >= 0.7) idCol = c;
+      else if (seatCol < 0 && smallNum >= 0.7) seatCol = c;
+    }
+    if (nameCol < 0) nameCol = 0;
+  }
+  var out = [];
+  rows.slice(start).forEach(function(r){
+    var name = String(r[nameCol] == null ? '' : r[nameCol]).trim();
+    if (!name) return;
+    out.push({
+      seat: seatCol >= 0 ? String(r[seatCol] == null ? '' : r[seatCol]).trim() : String(out.length + 1),
+      id: idCol >= 0 ? String(r[idCol] == null ? '' : r[idCol]).trim() : '',
+      name: name
+    });
+  });
+  return out;
+}
+
+$('#file').addEventListener('change', function(e){
+  var f = e.target.files[0]; if (!f) return;
+  var reader = new FileReader();
+  reader.onload = function(ev){
+    try{
+      var wb = XLSX.read(new Uint8Array(ev.target.result), {type:'array'});
+      var ws = wb.Sheets[wb.SheetNames[0]];
+      var rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', raw:false});
+      var list = parseRows(rows);
+      if (!list.length){ toast('讀不到學生姓名，請確認檔案有「姓名」欄'); return; }
+      if (!$('#course').value.trim()) $('#course').value = f.name.replace(/\.(xlsx|xls|csv)$/i, '');
+      rosters[courseName()] = list; save('rc_rosters', rosters);
+      saveSettings(); refreshCourseList();
+      setRoster(list, true);
+      toast('已載入 ' + list.length + ' 位學生');
+    }catch(err){ toast('檔案讀取失敗：' + err.message); }
+    e.target.value = '';
+  };
+  reader.readAsArrayBuffer(f);
+});
+
+$('#btnTemplate').addEventListener('click', function(){
+  var ws = XLSX.utils.aoa_to_sheet([['座號','學號','姓名'],[1,'11234001','王小明'],[2,'11234002','陳小華'],[3,'11234003','林美玲']]);
+  ws['!cols'] = [{wch:6},{wch:12},{wch:12}];
+  var wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '名單');
+  XLSX.writeFile(wb, '點名名單範本.xlsx');
+});
+$('#btnClearRoster').addEventListener('click', function(){
+  var c = courseName();
+  if (!rosters[c]) { toast('此課程沒有已存的名單'); return; }
+  if (!confirm('確定清除「' + c + '」的名單？（已存的點名紀錄不受影響）')) return;
+  delete rosters[c]; save('rc_rosters', rosters); refreshCourseList();
+  stopRun(); setRoster([], false);
+});
+
+function setRoster(list, fresh){
+  stopRun();
+  roster = list;
+  var rec = records[recKey()];
+  if (!fresh && rec && rec.marks && rec.marks.length === list.length) { marks = rec.marks.slice(); }
+  else marks = new Array(list.length).fill(null);
+  cur = -1; finished = false;
+  $('#rosterInfo').textContent = list.length ? ('「' + courseName() + '」名單：' + list.length + ' 位') : '尚未載入名單';
+  renderTable(); renderStage(); renderStats();
+  if (!fresh && rec && marks.some(Boolean)) toast('已載入 ' + $('#date').value + ' 的點名紀錄');
+}
+function loadCourse(){
+  var list = rosters[courseName()] || [];
+  setRoster(list, false);
+}
+$('#course').addEventListener('change', function(){ saveSettings(); loadCourse(); });
+$('#date').addEventListener('change', loadCourse);
+
+/* ---------- speech ---------- */
+var hasSpeech = 'speechSynthesis' in window;
+var voices = [];
+function loadVoices(){
+  if (!hasSpeech) return;
+  voices = speechSynthesis.getVoices();
+  var zh = voices.filter(function(v){ return /^zh|^cmn|^yue/i.test(v.lang); });
+  var rank = function(v){ var l = v.lang.toLowerCase(); return /tw|hant/.test(l) ? 0 : /hk/.test(l) ? 2 : 1; };
+  zh.sort(function(a,b){ return rank(a) - rank(b); });
+  var sel = $('#voice');
+  sel.innerHTML = '<option value="">（系統預設）</option>' + zh.map(function(v){ return '<option value="' + esc(v.voiceURI) + '">' + esc(v.name + '（' + v.lang + '）') + '</option>'; }).join('');
+  if (settings.voice && zh.some(function(v){ return v.voiceURI === settings.voice; })) sel.value = settings.voice;
+  else if (zh.length) sel.value = zh[0].voiceURI;
+  $('#speechWarn').textContent = zh.length ? '' : '此瀏覽器找不到中文語音，建議使用 Chrome 或 Edge。';
+}
+if (hasSpeech){ loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
+else $('#speechWarn').textContent = '此瀏覽器不支援語音朗讀，仍可用畫面點名。';
+
+function speak(text){
+  if (!hasSpeech) return;
+  speechSynthesis.cancel();
+  var u = new SpeechSynthesisUtterance(text);
+  u.lang = 'zh-TW';
+  var v = voices.find(function(x){ return x.voiceURI === $('#voice').value; });
+  if (v){ u.voice = v; u.lang = v.lang; }
+  u.rate = Number($('#rate').value);
+  speechSynthesis.speak(u);
+}
+function textFor(s){
+  var m = $('#mode').value;
+  if (m === 'seat' && s.seat) return s.seat + '號，' + s.name;
+  if (m === 'id3' && s.id) return s.id.slice(-3).split('').join(' ') + '，' + s.name;
+  return s.name;
+}
+$('#rate').addEventListener('input', function(){ $('#rateVal').textContent = Number(this.value).toFixed(1); saveSettings(); });
+['#secs','#mode','#voice'].forEach(function(s){ $(s).addEventListener('change', saveSettings); });
+$('#btnTest').addEventListener('click', function(){ speak(roster.length ? textFor(roster[0]) : '王小明'); });
+
+/* ---------- run loop ---------- */
+function requestWake(){ try{ if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function(w){ wakeLock = w; }).catch(function(){}); }catch(e){} }
+function releaseWake(){ try{ if (wakeLock) wakeLock.release(); }catch(e){} wakeLock = null; }
+
+function step(){
+  clearTimeout(timer);
+  if (cur >= roster.length){ finish(); return; }
+  renderStage(); highlightRow();
+  speak(textFor(roster[cur]));
+  stepDur = Number($('#secs').value) * 1000;
+  stepStart = performance.now();
+  timer = setTimeout(advance, stepDur);
+  animate();
+}
+function advance(){
+  if (!marks[cur]) marks[cur] = 'present';
+  renderRow(cur); persist();
+  cur++;
+  step();
+}
+function animate(){
+  cancelAnimationFrame(raf);
+  var tick = function(){
+    var el = performance.now() - stepStart;
+    var p = Math.min(1, el / stepDur);
+    $('#bar').style.transform = 'scaleX(' + (1 - p) + ')';
+    $('#secLeft').textContent = running ? ('剩 ' + Math.max(0, Math.ceil((stepDur - el) / 1000)) + ' 秒') : '';
+    if (p < 1 && running) raf = requestAnimationFrame(tick);
+  };
+  tick();
+}
+function start(){
+  if (!roster.length){ toast('請先上傳名單'); return; }
+  if (running){ pause(); return; }
+  if (cur < 0 || finished){
+    if (marks.some(Boolean) && !confirm('重新點名會清除本次（' + $('#date').value + '）的紀錄，確定？')) return;
+    marks = new Array(roster.length).fill(null);
+    cur = 0; finished = false; renderTable(); renderStats();
+  }
+  running = true; requestWake();
+  $('#btnStart').textContent = '暫停';
+  step();
+}
+function pause(){
+  running = false; clearTimeout(timer); cancelAnimationFrame(raf);
+  if (hasSpeech) speechSynthesis.cancel();
+  releaseWake();
+  $('#btnStart').textContent = '繼續';
+  $('#secLeft').textContent = '已暫停';
+  queueCloud();
+}
+function stopRun(){
+  running = false; clearTimeout(timer); cancelAnimationFrame(raf);
+  if (hasSpeech) speechSynthesis.cancel();
+  releaseWake();
+  $('#btnStart').textContent = '開始點名';
+  $('#bar').style.transform = 'scaleX(0)';
+  $('#secLeft').textContent = '';
+}
+function finish(){
+  stopRun(); finished = true; cur = roster.length;
+  persist(); renderStage(); highlightRow(); renderStats();
+  var a = marks.filter(function(m){ return m === 'absent'; }).length;
+  speak('點名完成，缺席' + a + '人');
+  $('#btnStart').textContent = '重新點名';
+  if (cloudOn()) scheduleSync(0);
+}
+function go(delta){
+  if (!roster.length) return;
+  if (cur < 0) cur = 0;
+  else {
+    if (delta > 0 && cur < roster.length && !marks[cur]) { marks[cur] = 'present'; renderRow(cur); persist(); }
+    cur = Math.max(0, Math.min(roster.length, cur + delta));
+  }
+  finished = false;
+  if (cur >= roster.length){ finish(); return; }
+  if (running) step();
+  else { renderStage(); highlightRow(); speak(textFor(roster[cur])); }
+}
+function setMark(idx, status, toggle){
+  if (idx < 0 || idx >= roster.length) return;
+  marks[idx] = (toggle && marks[idx] === status) ? null : status;
+  renderRow(idx); renderStats(); persist();
+  if (idx === cur) renderStage();
+}
+function flash(cls){
+  var s = $('#stage'); s.classList.remove('flash-absent','flash-late');
+  void s.offsetWidth; s.classList.add(cls);
+  setTimeout(function(){ s.classList.remove(cls); }, 600);
+}
+function markAbsent(){ if (cur < 0 || cur >= roster.length) return; setMark(cur, 'absent', true); if (marks[cur]) flash('flash-absent'); }
+function markLate(){ if (cur < 0 || cur >= roster.length) return; setMark(cur, 'late', true); if (marks[cur]) flash('flash-late'); }
+function markPrevAbsent(){
+  var idx = cur - 1;
+  if (idx < 0){ toast('沒有上一位'); return; }
+  setMark(idx, 'absent', false);
+  toast('已將「' + roster[idx].name + '」標為缺席');
+}
+function repeat(){ if (cur < 0 || cur >= roster.length) return; if (running) step(); else speak(textFor(roster[cur])); }
+
+$('#btnStart').addEventListener('click', start);
+$('#btnStop').addEventListener('click', function(){ if (cur >= 0 && !finished) finish(); });
+$('#btnPrev').addEventListener('click', function(){ go(-1); });
+$('#btnNext').addEventListener('click', function(){ go(1); });
+$('#btnRepeat').addEventListener('click', repeat);
+$('#btnAbsent').addEventListener('click', markAbsent);
+$('#btnLate').addEventListener('click', markLate);
+$('#btnPrevAbsent').addEventListener('click', markPrevAbsent);
+
+document.addEventListener('keydown', function(e){
+  var t = e.target.tagName;
+  if (t === 'INPUT' || t === 'SELECT' || t === 'TEXTAREA') return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  var k = e.key;
+  if (k === ' ' || k === 'Spacebar'){ e.preventDefault(); markAbsent(); }
+  else if (k === 'l' || k === 'L'){ markLate(); }
+  else if (k === 'b' || k === 'B' || k === 'Backspace'){ e.preventDefault(); markPrevAbsent(); }
+  else if (k === 'Enter' || k === 'p' || k === 'P'){ e.preventDefault(); start(); }
+  else if (k === 'ArrowRight'){ go(1); }
+  else if (k === 'ArrowLeft'){ go(-1); }
+  else if (k === 'r' || k === 'R'){ repeat(); }
+});
+
+/* ---------- render ---------- */
+function statusCls(m){ return m ? 's-' + m : 's-none'; }
+function renderStage(){
+  var total = roster.length;
+  if (!total){ $('#counter').textContent = '請先上傳名單'; $('#curName').textContent = '—'; $('#curSub').textContent = ''; $('#curStatus').textContent = ''; $('#curStatus').className = ''; return; }
+  if (finished || cur >= total){
+    var c = countMarks();
+    $('#counter').textContent = '點名完成';
+    $('#curName').textContent = '缺席 ' + c.absent + ' 人';
+    $('#curSub').textContent = '出席 ' + c.present + '　遲到 ' + c.late + '　請假 ' + c.leave + '　共 ' + total + ' 人';
+    $('#curStatus').textContent = ''; $('#curStatus').className = '';
+    return;
+  }
+  if (cur < 0){ $('#counter').textContent = '共 ' + total + ' 位，按「開始點名」'; $('#curName').textContent = '—'; $('#curSub').textContent = ''; $('#curStatus').textContent = ''; $('#curStatus').className = ''; return; }
+  var s = roster[cur];
+  $('#counter').textContent = '第 ' + (cur + 1) + ' / ' + total + ' 位';
+  $('#curName').textContent = s.name;
+  $('#curSub').textContent = [s.seat ? s.seat + ' 號' : '', s.id].filter(Boolean).join('　');
+  var m = marks[cur];
+  $('#curStatus').textContent = m ? STATUS[m] : '';
+  $('#curStatus').className = m ? statusCls(m) : '';
+}
+function rowHTML(i){
+  var s = roster[i], m = marks[i];
+  return '<td>' + esc(s.seat) + '</td><td>' + esc(s.id) + '</td><td>' + esc(s.name) + '</td>' +
+    '<td><button data-i="' + i + '" class="' + statusCls(m) + '">' + (m ? STATUS[m] : '未點') + '</button></td>';
+}
+function renderTable(){
+  $('#tbody').innerHTML = roster.map(function(_, i){ return '<tr id="r' + i + '">' + rowHTML(i) + '</tr>'; }).join('') ||
+    '<tr><td colspan="4" style="color:var(--muted);text-align:center;padding:20px">尚無名單</td></tr>';
+}
+function renderRow(i){ var tr = document.getElementById('r' + i); if (tr) tr.innerHTML = rowHTML(i); }
+function highlightRow(){
+  var old = document.querySelector('tr.current'); if (old) old.classList.remove('current');
+  var tr = document.getElementById('r' + cur);
+  if (tr){ tr.classList.add('current'); tr.scrollIntoView({block:'nearest'}); }
+}
+$('#tbody').addEventListener('click', function(e){
+  var b = e.target.closest('button[data-i]'); if (!b) return;
+  var i = Number(b.dataset.i), m = marks[i];
+  var next = ORDER[(ORDER.indexOf(m) + 1) % ORDER.length];
+  setMark(i, next, false);
+});
+function countMarks(){
+  var c = {present:0, absent:0, late:0, leave:0, none:0};
+  roster.forEach(function(_, i){ var m = marks[i]; if (m) c[m]++; else c.none++; });
+  return c;
+}
+function renderStats(){
+  var c = countMarks();
+  $('#stats').innerHTML = ['present','absent','late','leave'].map(function(k){ return '<span class="chip s-' + k + '">' + STATUS[k] + ' ' + c[k] + '</span>'; }).join('') +
+    (c.none ? '<span class="chip s-none">未點 ' + c.none + '</span>' : '');
+}
+
+/* ---------- records & export ---------- */
+function persist(){
+  if (!roster.length) return;
+  records[recKey()] = {date: $('#date').value, course: courseName(), roster: roster, marks: marks.slice(), saved: Date.now()};
+  save('rc_records', records);
+  queueCloud();
+}
+
+/* ---------- Google 試算表同步 ---------- */
+var cloud = load('rc_cloud', {url:'', token:'', sheetUrl:''});
+var pending = load('rc_pending', {});
+var syncTimer = null, syncing = false;
+function cloudOn(){ return !!(cloud.url && cloud.token); }
+function setBadge(el, cls, text){ el.className = 'sync' + (cls ? ' ' + cls : ''); el.textContent = text; el.style.display = ''; }
+function renderCloud(){
+  $('#gasUrl').value = cloud.url || '';
+  $('#gasToken').value = cloud.token || '';
+  if (cloudOn()) setBadge($('#cloudState'), 'ok', '已連線 Google 試算表');
+  else setBadge($('#cloudState'), '', '尚未連線');
+  var a = $('#sheetLink');
+  if (cloudOn() && cloud.sheetUrl){ a.href = cloud.sheetUrl; a.style.display = ''; } else a.style.display = 'none';
+  $('#btnSyncNow').style.display = cloudOn() ? '' : 'none';
+  $('#cloudBox').open = !cloudOn();
+  if (!cloudOn()) $('#syncState').style.display = 'none';
+}
+function postCloud(body){
+  body.token = cloud.token;
+  return fetch(cloud.url, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify(body), redirect:'follow'})
+    .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function(j){ if (!j.ok) throw new Error(j.error || '寫入失敗'); if (j.url && j.url !== cloud.sheetUrl){ cloud.sheetUrl = j.url; save('rc_cloud', cloud); renderCloud(); } return j; });
+}
+function payloadFor(rec){
+  return {action:'save', date: rec.date, course: rec.course,
+    rows: rec.roster.map(function(s, i){ return {seat: s.seat, id: s.id, name: s.name, status: rec.marks[i] ? STATUS[rec.marks[i]] : '未點'}; })};
+}
+function queueCloud(){
+  if (!cloudOn()) return;
+  var rec = records[recKey()];
+  if (!rec || !rec.marks.some(Boolean)) return;
+  pending[recKey()] = payloadFor(rec); save('rc_pending', pending);
+  if (!running) scheduleSync(1500);   // 點名進行中不上傳，暫停或結束後才存
+}
+function scheduleSync(ms){ clearTimeout(syncTimer); syncTimer = setTimeout(flushCloud, ms || 0); }
+function flushCloud(){
+  if (!cloudOn() || syncing) return;
+  var keys = Object.keys(pending);
+  if (!keys.length) return;
+  syncing = true;
+  var st = $('#syncState');
+  setBadge(st, 'busy', '儲存中…');
+  var k = keys[0], body = pending[k];
+  postCloud(JSON.parse(JSON.stringify(body))).then(function(){
+    if (pending[k] === body){ delete pending[k]; save('rc_pending', pending); }
+    syncing = false;
+    var t = new Date().toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit'});
+    setBadge(st, 'ok', '已存入試算表 ' + t);
+    if (Object.keys(pending).length) scheduleSync(300);
+  }).catch(function(err){
+    syncing = false;
+    setBadge(st, 'err', '尚未存入（' + err.message + '），稍後自動重試');
+    scheduleSync(30000);
+  });
+}
+$('#btnCloudSave').addEventListener('click', function(){
+  var url = $('#gasUrl').value.trim(), token = $('#gasToken').value;
+  if (!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(url)){ toast('網址格式應為 https://script.google.com/macros/s/…/exec'); return; }
+  if (!token){ toast('請輸入密碼'); return; }
+  cloud = {url: url, token: token, sheetUrl: ''};
+  setBadge($('#cloudState'), 'busy', '測試連線中…');
+  postCloud({action:'ping'}).then(function(j){
+    save('rc_cloud', cloud); renderCloud();
+    toast('連線成功：' + (j.name || 'Google 試算表'));
+    var rec = records[recKey()];
+    if (rec && rec.marks.some(Boolean)){ pending[recKey()] = payloadFor(rec); save('rc_pending', pending); }
+    scheduleSync(0);
+  }).catch(function(err){
+    cloud = load('rc_cloud', {url:'', token:'', sheetUrl:''});
+    renderCloud();
+    setBadge($('#cloudState'), 'err', '連線失敗：' + err.message);
+  });
+});
+$('#btnCloudOff').addEventListener('click', function(){
+  if (!confirm('中斷與 Google 試算表的連線？（試算表內已存的資料不受影響）')) return;
+  cloud = {url:'', token:'', sheetUrl:''}; save('rc_cloud', cloud); renderCloud();
+});
+$('#btnSyncNow').addEventListener('click', function(){
+  var rec = records[recKey()];
+  if (!rec || !rec.marks.some(Boolean)){ toast('本次還沒有點名結果'); return; }
+  pending[recKey()] = payloadFor(rec); save('rc_pending', pending);
+  scheduleSync(0);
+});
+window.addEventListener('online', function(){ scheduleSync(0); });
+function exportCurrent(){
+  if (!roster.length){ toast('沒有名單'); return; }
+  var aoa = [['課程', courseName()], ['日期', $('#date').value], [], ['座號','學號','姓名','狀態']];
+  roster.forEach(function(s, i){ aoa.push([s.seat, s.id, s.name, marks[i] ? STATUS[marks[i]] : '未點']); });
+  var c = countMarks();
+  aoa.push([], ['出席', c.present], ['缺席', c.absent], ['遲到', c.late], ['請假', c.leave], ['未點', c.none]);
+  var ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = [{wch:8},{wch:12},{wch:12},{wch:8}];
+  var wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '點名');
+  XLSX.writeFile(wb, '點名_' + courseName() + '_' + $('#date').value + '.xlsx');
+}
+function exportHistory(){
+  var c = courseName();
+  var recs = Object.keys(records).map(function(k){ return records[k]; }).filter(function(r){ return r.course === c; })
+    .sort(function(a, b){ return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+  if (!recs.length){ toast('「' + c + '」尚無紀錄'); return; }
+  var students = [], idx = {};
+  var keyOf = function(s){ return s.id || s.name; };
+  var all = (rosters[c] || []).slice();
+  recs.forEach(function(r){ all = all.concat(r.roster); });
+  all.forEach(function(s){
+    var k = keyOf(s); if (!(k in idx)){ idx[k] = students.length; students.push(s); }
+  });
+  var head = ['座號','學號','姓名'].concat(recs.map(function(r){ return r.date; }), ['缺席次數','遲到次數','請假次數']);
+  var aoa = [head];
+  students.forEach(function(s){
+    var row = [s.seat, s.id, s.name], a = 0, l = 0, v = 0;
+    recs.forEach(function(r){
+      var j = r.roster.findIndex(function(x){ return keyOf(x) === keyOf(s); });
+      var m = j >= 0 ? r.marks[j] : null;
+      if (m === 'absent') a++; if (m === 'late') l++; if (m === 'leave') v++;
+      row.push(j < 0 ? '' : (m ? STATUS[m] : '未點'));
+    });
+    aoa.push(row.concat([a, l, v]));
+  });
+  var ws = XLSX.utils.aoa_to_sheet(aoa);
+  var wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '歷次紀錄');
+  XLSX.writeFile(wb, '點名紀錄_' + c + '.xlsx');
+}
+function copyAbsent(){
+  var names = roster.filter(function(_, i){ return marks[i] === 'absent'; }).map(function(s){ return s.name; });
+  var late = roster.filter(function(_, i){ return marks[i] === 'late'; }).map(function(s){ return s.name; });
+  var text = $('#date').value + ' ' + courseName() + '\n缺席（' + names.length + '人）：' + (names.join('、') || '無') +
+    (late.length ? '\n遲到（' + late.length + '人）：' + late.join('、') : '');
+  var done = function(){ toast('已複製'); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, function(){ fallback(); });
+  else fallback();
+  function fallback(){ var ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); try{ document.execCommand('copy'); done(); }catch(e){ alert(text); } ta.remove(); }
+}
+$('#btnExport').addEventListener('click', exportCurrent);
+$('#btnHistory').addEventListener('click', exportHistory);
+$('#btnCopy').addEventListener('click', copyAbsent);
+
+/* ---------- boot ---------- */
+refreshCourseList();
+renderCloud();
+loadCourse();
+if (cloudOn() && Object.keys(pending).length) scheduleSync(1000);
+})();
+</script>
+</body>
+</html>

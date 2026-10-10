@@ -198,7 +198,7 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px}
       <button id="btnLate">遲到</button>
       <button id="btnPrevAbsent">上一位缺席</button>
       <button id="btnAct" class="plus">活動 +1</button>
-      <button id="btnBook" class="plus">帶課本／文具</button>
+      <button id="btnBook" class="plus">課本／文具 +1</button>
     </div>
     <div class="row ctrl">
       <button id="btnPrev">◀ 上一位</button>
@@ -208,7 +208,7 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px}
       <button id="btnStop">結束</button>
     </div>
     <div class="keys">
-      快捷鍵：<kbd>空白鍵</kbd> 缺席　<kbd>L</kbd> 遲到　<kbd>B</kbd> 上一位缺席　<kbd>Enter</kbd> 開始／暫停　<kbd>←</kbd><kbd>→</kbd> 上下一位　<kbd>R</kbd> 重唸　<kbd>A</kbd> 活動 +1　<kbd>K</kbd> 帶課本／文具
+      快捷鍵：<kbd>空白鍵</kbd> 缺席　<kbd>L</kbd> 遲到　<kbd>B</kbd> 上一位缺席　<kbd>Enter</kbd> 開始／暫停　<kbd>←</kbd><kbd>→</kbd> 上下一位　<kbd>R</kbd> 重唸　<kbd>A</kbd> 活動 +1　<kbd>K</kbd> 課本／文具 +1
     </div>
   </section>
 
@@ -220,7 +220,7 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px}
     </div>
     <div class="tablewrap">
       <table>
-        <thead><tr><th>座號</th><th>學號</th><th>姓名</th><th>狀態（點一下可切換）</th><th>活動加分</th><th>課本／文具</th></tr></thead>
+        <thead><tr><th>座號</th><th>學號</th><th>姓名</th><th>狀態（點一下可切換）</th><th>活動加分</th><th>課本／文具加分</th></tr></thead>
         <tbody id="tbody"></tbody>
       </table>
     </div>
@@ -534,9 +534,9 @@ function addAct(idx, d){
   acts[idx] = Math.max(0, (acts[idx] || 0) + d);
   renderRow(idx); persist(); if (idx === cur) renderStage();
 }
-function toggleBook(idx){
+function addBook(idx, d){
   if (idx < 0 || idx >= roster.length) return;
-  books[idx] = books[idx] ? 0 : 1;
+  books[idx] = Math.max(0, (books[idx] || 0) + d);
   renderRow(idx); persist(); if (idx === cur) renderStage();
 }
 function curOrLast(){ return (cur >= 0 && cur < roster.length) ? cur : -1; }
@@ -556,7 +556,7 @@ $('#btnAbsent').addEventListener('click', markAbsent);
 $('#btnLate').addEventListener('click', markLate);
 $('#btnPrevAbsent').addEventListener('click', markPrevAbsent);
 $('#btnAct').addEventListener('click', function(){ bonusHere(function(i){ addAct(i, 1); toast(roster[i].name + ' 活動 +1（共 ' + acts[i] + '）'); }); });
-$('#btnBook').addEventListener('click', function(){ bonusHere(function(i){ toggleBook(i); toast(roster[i].name + (books[i] ? ' 帶課本／文具 +1' : ' 取消課本／文具加分')); }); });
+$('#btnBook').addEventListener('click', function(){ bonusHere(function(i){ addBook(i, 1); toast(roster[i].name + ' 課本／文具 +1（共 ' + books[i] + '）'); }); });
 
 document.addEventListener('keydown', function(e){
   var t = e.target.tagName;
@@ -593,7 +593,7 @@ function renderStage(){
   $('#curName').textContent = s.name;
   $('#curSub').textContent = [s.seat ? s.seat + ' 號' : '', s.id].filter(Boolean).join('　');
   var m = marks[cur];
-  var extra = (acts[cur] ? '　活動 +' + acts[cur] : '') + (books[cur] ? '　課本／文具 +1' : '');
+  var extra = (acts[cur] ? '　活動 +' + acts[cur] : '') + (books[cur] ? '　課本／文具 +' + books[cur] : '');
   $('#curStatus').textContent = (m ? STATUS[m] : '') + extra;
   $('#curStatus').className = m ? statusCls(m) : '';
 }
@@ -602,7 +602,7 @@ function rowHTML(i){
   return '<td>' + esc(s.seat) + '</td><td>' + esc(s.id) + '</td><td>' + esc(s.name) + '</td>' +
     '<td><button data-i="' + i + '" class="' + statusCls(m) + '">' + (m ? STATUS[m] : '未點') + '</button></td>' +
     '<td><span class="bonus"><button data-act="-1" data-j="' + i + '">−</button><span class="n">' + (acts[i] || '') + '</span><button data-act="1" data-j="' + i + '">＋</button></span></td>' +
-    '<td><button data-book="' + i + '" class="' + (books[i] ? 'bk-on' : 's-none') + '">' + (books[i] ? '✓ 有帶' : '—') + '</button></td>';
+    '<td><span class="bonus"><button data-book="-1" data-j="' + i + '">−</button><span class="n">' + (books[i] || '') + '</span><button data-book="1" data-j="' + i + '">＋</button></span></td>';
 }
 function renderTable(){
   $('#tbody').innerHTML = roster.map(function(_, i){ return '<tr id="r' + i + '">' + rowHTML(i) + '</tr>'; }).join('') ||
@@ -618,7 +618,7 @@ $('#tbody').addEventListener('click', function(e){
   var ab = e.target.closest('button[data-act]');
   if (ab){ addAct(Number(ab.dataset.j), Number(ab.dataset.act)); return; }
   var bb = e.target.closest('button[data-book]');
-  if (bb){ toggleBook(Number(bb.dataset.book)); return; }
+  if (bb){ addBook(Number(bb.dataset.j), Number(bb.dataset.book)); return; }
   var b = e.target.closest('button[data-i]'); if (!b) return;
   var i = Number(b.dataset.i), m = marks[i];
   var next = ORDER[(ORDER.indexOf(m) + 1) % ORDER.length];

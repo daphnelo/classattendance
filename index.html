@@ -74,6 +74,11 @@ kbd{border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;paddi
 .s-late{background:var(--late-bg);color:var(--late)}
 .s-leave{background:var(--leave-bg);color:var(--leave)}
 .s-none{background:var(--bg);color:var(--muted)}
+.bonus{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+.bonus button{min-width:30px;padding:4px 8px}
+.bonus .n{min-width:22px;text-align:center;font-weight:700}
+.bk-on{background:#e8f5e9;color:#2e7d32;border-color:#2e7d32}
+.bigbtns .plus{background:#e8f5e9;color:#2e7d32}
 .tablewrap{max-height:420px;overflow:auto;border:1px solid var(--line);border-radius:8px}
 table{width:100%;border-collapse:collapse;font-size:15px}
 th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left}
@@ -192,6 +197,8 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px}
       <button id="btnAbsent">缺席</button>
       <button id="btnLate">遲到</button>
       <button id="btnPrevAbsent">上一位缺席</button>
+      <button id="btnAct" class="plus">活動 +1</button>
+      <button id="btnBook" class="plus">帶課本／文具</button>
     </div>
     <div class="row ctrl">
       <button id="btnPrev">◀ 上一位</button>
@@ -201,7 +208,7 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px}
       <button id="btnStop">結束</button>
     </div>
     <div class="keys">
-      快捷鍵：<kbd>空白鍵</kbd> 缺席　<kbd>L</kbd> 遲到　<kbd>B</kbd> 上一位缺席　<kbd>Enter</kbd> 開始／暫停　<kbd>←</kbd><kbd>→</kbd> 上下一位　<kbd>R</kbd> 重唸
+      快捷鍵：<kbd>空白鍵</kbd> 缺席　<kbd>L</kbd> 遲到　<kbd>B</kbd> 上一位缺席　<kbd>Enter</kbd> 開始／暫停　<kbd>←</kbd><kbd>→</kbd> 上下一位　<kbd>R</kbd> 重唸　<kbd>A</kbd> 活動 +1　<kbd>K</kbd> 帶課本／文具
     </div>
   </section>
 
@@ -213,7 +220,7 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px}
     </div>
     <div class="tablewrap">
       <table>
-        <thead><tr><th>座號</th><th>學號</th><th>姓名</th><th>狀態（點一下可切換）</th></tr></thead>
+        <thead><tr><th>座號</th><th>學號</th><th>姓名</th><th>狀態（點一下可切換）</th><th>活動加分</th><th>課本／文具</th></tr></thead>
         <tbody id="tbody"></tbody>
       </table>
     </div>
@@ -235,7 +242,7 @@ var $ = function(s){ return document.querySelector(s); };
 var STATUS = {present:'出席', absent:'缺席', late:'遲到', leave:'請假'};
 var ORDER = ['present','absent','late','leave'];
 
-var roster = [], marks = [], cur = -1, running = false, finished = false;
+var roster = [], marks = [], acts = [], books = [], cur = -1, running = false, finished = false;
 var timer = null, raf = null, stepStart = 0, stepDur = 3000, wakeLock = null;
 
 /* ---------- storage ---------- */
@@ -351,8 +358,11 @@ function setRoster(list, fresh){
   stopRun();
   roster = list;
   var rec = records[recKey()];
-  if (!fresh && rec && rec.marks && rec.marks.length === list.length) { marks = rec.marks.slice(); }
-  else marks = new Array(list.length).fill(null);
+  if (!fresh && rec && rec.marks && rec.marks.length === list.length) {
+    marks = rec.marks.slice();
+    acts = (rec.acts && rec.acts.length === list.length) ? rec.acts.slice() : new Array(list.length).fill(0);
+    books = (rec.books && rec.books.length === list.length) ? rec.books.slice() : new Array(list.length).fill(0);
+  } else { marks = new Array(list.length).fill(null); acts = new Array(list.length).fill(0); books = new Array(list.length).fill(0); }
   cur = -1; finished = false;
   $('#rosterInfo').textContent = list.length ? ('「' + courseName() + '」名單：' + list.length + ' 位') : '尚未載入名單';
   renderTable(); renderStage(); renderStats();
@@ -440,6 +450,7 @@ function start(){
   if (cur < 0 || finished){
     if (marks.some(Boolean) && !confirm('重新點名會清除本次（' + $('#date').value + '）的紀錄，確定？')) return;
     marks = new Array(roster.length).fill(null);
+    acts = new Array(roster.length).fill(0); books = new Array(roster.length).fill(0);
     cur = 0; finished = false; renderTable(); renderStats();
   }
   running = true; requestWake();
@@ -501,6 +512,22 @@ function markPrevAbsent(){
   setMark(idx, 'absent', false);
   toast('已將「' + roster[idx].name + '」標為缺席');
 }
+function addAct(idx, d){
+  if (idx < 0 || idx >= roster.length) return;
+  acts[idx] = Math.max(0, (acts[idx] || 0) + d);
+  renderRow(idx); persist(); if (idx === cur) renderStage();
+}
+function toggleBook(idx){
+  if (idx < 0 || idx >= roster.length) return;
+  books[idx] = books[idx] ? 0 : 1;
+  renderRow(idx); persist(); if (idx === cur) renderStage();
+}
+function curOrLast(){ return (cur >= 0 && cur < roster.length) ? cur : -1; }
+function bonusHere(fn){
+  var i = curOrLast();
+  if (i < 0){ toast('點名中才能用這個鍵；結束後請在下方表格加分'); return; }
+  fn(i);
+}
 function repeat(){ if (cur < 0 || cur >= roster.length) return; if (running) step(); else speak(textFor(roster[cur])); }
 
 $('#btnStart').addEventListener('click', start);
@@ -511,6 +538,8 @@ $('#btnRepeat').addEventListener('click', repeat);
 $('#btnAbsent').addEventListener('click', markAbsent);
 $('#btnLate').addEventListener('click', markLate);
 $('#btnPrevAbsent').addEventListener('click', markPrevAbsent);
+$('#btnAct').addEventListener('click', function(){ bonusHere(function(i){ addAct(i, 1); toast(roster[i].name + ' 活動 +1（共 ' + acts[i] + '）'); }); });
+$('#btnBook').addEventListener('click', function(){ bonusHere(function(i){ toggleBook(i); toast(roster[i].name + (books[i] ? ' 帶課本／文具 +1' : ' 取消課本／文具加分')); }); });
 
 document.addEventListener('keydown', function(e){
   var t = e.target.tagName;
@@ -524,6 +553,8 @@ document.addEventListener('keydown', function(e){
   else if (k === 'ArrowRight'){ go(1); }
   else if (k === 'ArrowLeft'){ go(-1); }
   else if (k === 'r' || k === 'R'){ repeat(); }
+  else if (k === 'a' || k === 'A'){ $('#btnAct').click(); }
+  else if (k === 'k' || k === 'K'){ $('#btnBook').click(); }
 });
 
 /* ---------- render ---------- */
@@ -545,17 +576,20 @@ function renderStage(){
   $('#curName').textContent = s.name;
   $('#curSub').textContent = [s.seat ? s.seat + ' 號' : '', s.id].filter(Boolean).join('　');
   var m = marks[cur];
-  $('#curStatus').textContent = m ? STATUS[m] : '';
+  var extra = (acts[cur] ? '　活動 +' + acts[cur] : '') + (books[cur] ? '　課本／文具 +1' : '');
+  $('#curStatus').textContent = (m ? STATUS[m] : '') + extra;
   $('#curStatus').className = m ? statusCls(m) : '';
 }
 function rowHTML(i){
   var s = roster[i], m = marks[i];
   return '<td>' + esc(s.seat) + '</td><td>' + esc(s.id) + '</td><td>' + esc(s.name) + '</td>' +
-    '<td><button data-i="' + i + '" class="' + statusCls(m) + '">' + (m ? STATUS[m] : '未點') + '</button></td>';
+    '<td><button data-i="' + i + '" class="' + statusCls(m) + '">' + (m ? STATUS[m] : '未點') + '</button></td>' +
+    '<td><span class="bonus"><button data-act="-1" data-j="' + i + '">−</button><span class="n">' + (acts[i] || '') + '</span><button data-act="1" data-j="' + i + '">＋</button></span></td>' +
+    '<td><button data-book="' + i + '" class="' + (books[i] ? 'bk-on' : 's-none') + '">' + (books[i] ? '✓ 有帶' : '—') + '</button></td>';
 }
 function renderTable(){
   $('#tbody').innerHTML = roster.map(function(_, i){ return '<tr id="r' + i + '">' + rowHTML(i) + '</tr>'; }).join('') ||
-    '<tr><td colspan="4" style="color:var(--muted);text-align:center;padding:20px">尚無名單</td></tr>';
+    '<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:20px">尚無名單</td></tr>';
 }
 function renderRow(i){ var tr = document.getElementById('r' + i); if (tr) tr.innerHTML = rowHTML(i); }
 function highlightRow(){
@@ -564,6 +598,10 @@ function highlightRow(){
   if (tr){ tr.classList.add('current'); tr.scrollIntoView({block:'nearest'}); }
 }
 $('#tbody').addEventListener('click', function(e){
+  var ab = e.target.closest('button[data-act]');
+  if (ab){ addAct(Number(ab.dataset.j), Number(ab.dataset.act)); return; }
+  var bb = e.target.closest('button[data-book]');
+  if (bb){ toggleBook(Number(bb.dataset.book)); return; }
   var b = e.target.closest('button[data-i]'); if (!b) return;
   var i = Number(b.dataset.i), m = marks[i];
   var next = ORDER[(ORDER.indexOf(m) + 1) % ORDER.length];
@@ -583,7 +621,7 @@ function renderStats(){
 /* ---------- records & export ---------- */
 function persist(){
   if (!roster.length) return;
-  records[recKey()] = {date: $('#date').value, course: courseName(), roster: roster, marks: marks.slice(), saved: Date.now()};
+  records[recKey()] = {date: $('#date').value, course: courseName(), roster: roster, marks: marks.slice(), acts: acts.slice(), books: books.slice(), saved: Date.now()};
   save('rc_records', records);
   queueCloud();
 }
@@ -613,12 +651,14 @@ function postCloud(body){
 }
 function payloadFor(rec){
   return {action:'save', date: rec.date, course: rec.course,
-    rows: rec.roster.map(function(s, i){ return {seat: s.seat, id: s.id, name: s.name, status: rec.marks[i] ? STATUS[rec.marks[i]] : '未點'}; })};
+    rows: rec.roster.map(function(s, i){ return {seat: s.seat, id: s.id, name: s.name, status: rec.marks[i] ? STATUS[rec.marks[i]] : '未點',
+      act: (rec.acts && rec.acts[i]) || 0, book: (rec.books && rec.books[i]) || 0}; })};
 }
+function hasData(rec){ return rec.marks.some(Boolean) || (rec.acts || []).some(Boolean) || (rec.books || []).some(Boolean); }
 function queueCloud(){
   if (!cloudOn()) return;
   var rec = records[recKey()];
-  if (!rec || !rec.marks.some(Boolean)) return;
+  if (!rec || !hasData(rec)) return;
   pending[recKey()] = payloadFor(rec); save('rc_pending', pending);
   if (!running) scheduleSync(1500);   // 點名進行中不上傳，暫停或結束後才存
 }
@@ -653,7 +693,7 @@ $('#btnCloudSave').addEventListener('click', function(){
     save('rc_cloud', cloud); renderCloud();
     toast('連線成功：' + (j.name || 'Google 試算表'));
     var rec = records[recKey()];
-    if (rec && rec.marks.some(Boolean)){ pending[recKey()] = payloadFor(rec); save('rc_pending', pending); }
+    if (rec && hasData(rec)){ pending[recKey()] = payloadFor(rec); save('rc_pending', pending); }
     scheduleSync(0);
   }).catch(function(err){
     cloud = load('rc_cloud', {url:'', token:'', sheetUrl:''});
@@ -667,18 +707,18 @@ $('#btnCloudOff').addEventListener('click', function(){
 });
 $('#btnSyncNow').addEventListener('click', function(){
   var rec = records[recKey()];
-  if (!rec || !rec.marks.some(Boolean)){ toast('本次還沒有點名結果'); return; }
+  if (!rec || !hasData(rec)){ toast('本次還沒有點名結果'); return; }
   pending[recKey()] = payloadFor(rec); save('rc_pending', pending);
   scheduleSync(0);
 });
 window.addEventListener('online', function(){ scheduleSync(0); });
 function exportCurrent(){
   if (!roster.length){ toast('沒有名單'); return; }
-  var aoa = [['課程', courseName()], ['日期', $('#date').value], [], ['座號','學號','姓名','狀態']];
-  roster.forEach(function(s, i){ aoa.push([s.seat, s.id, s.name, marks[i] ? STATUS[marks[i]] : '未點']); });
+  var aoa = [['課程', courseName()], ['日期', $('#date').value], [], ['座號','學號','姓名','狀態','活動加分','課本／文具加分']];
+  roster.forEach(function(s, i){ aoa.push([s.seat, s.id, s.name, marks[i] ? STATUS[marks[i]] : '未點', acts[i] || '', books[i] || '']); });
   var c = countMarks();
   aoa.push([], ['出席', c.present], ['缺席', c.absent], ['遲到', c.late], ['請假', c.leave], ['未點', c.none]);
-  var ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = [{wch:8},{wch:12},{wch:12},{wch:8}];
+  var ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = [{wch:8},{wch:12},{wch:12},{wch:8},{wch:10},{wch:14}];
   var wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '點名');
   XLSX.writeFile(wb, '點名_' + courseName() + '_' + $('#date').value + '.xlsx');
 }
@@ -694,17 +734,18 @@ function exportHistory(){
   all.forEach(function(s){
     var k = keyOf(s); if (!(k in idx)){ idx[k] = students.length; students.push(s); }
   });
-  var head = ['座號','學號','姓名'].concat(recs.map(function(r){ return r.date; }), ['缺席次數','遲到次數','請假次數']);
+  var head = ['座號','學號','姓名'].concat(recs.map(function(r){ return r.date; }), ['缺席次數','遲到次數','請假次數','活動加分合計','課本文具加分合計']);
   var aoa = [head];
   students.forEach(function(s){
-    var row = [s.seat, s.id, s.name], a = 0, l = 0, v = 0;
+    var row = [s.seat, s.id, s.name], a = 0, l = 0, v = 0, ap = 0, bp = 0;
     recs.forEach(function(r){
       var j = r.roster.findIndex(function(x){ return keyOf(x) === keyOf(s); });
       var m = j >= 0 ? r.marks[j] : null;
+      if (j >= 0){ ap += (r.acts && r.acts[j]) || 0; bp += (r.books && r.books[j]) || 0; }
       if (m === 'absent') a++; if (m === 'late') l++; if (m === 'leave') v++;
       row.push(j < 0 ? '' : (m ? STATUS[m] : '未點'));
     });
-    aoa.push(row.concat([a, l, v]));
+    aoa.push(row.concat([a, l, v, ap, bp]));
   });
   var ws = XLSX.utils.aoa_to_sheet(aoa);
   var wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '歷次紀錄');
